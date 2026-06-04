@@ -351,9 +351,24 @@
       #stats-btn { display: inline-flex; }
     }
 
+.action-bar {
+  max-width: 520px;
+}
+
 @media (min-width: 900px) {
-  #stats-btn {
-    display: inline-flex !important;
+  .action-bar {
+    position: static;
+    width: 100%;
+    margin: 5px auto 0;
+    left: auto;
+    right: auto;
+    bottom: auto;
+  }
+
+  .board-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
 }
 
@@ -376,14 +391,15 @@
       .score-row { grid-area: score; }
       .meta-row { grid-area: meta; }
       .board-wrap { grid-area: board; }
-      .panel:nth-of-type(1) { grid-area: stats; align-self: start; }
-      .panel:nth-of-type(2) { grid-area: ach; align-self: start; }
-      .panel:nth-of-type(3) { grid-area: set; align-self: start; }
+      /* Fixed panel grid areas using IDs */
+      #stats-panel { grid-area: stats; }
+      #ach-panel { grid-area: ach; }
+      #settings-panel { grid-area: set; }
       .board { max-width: 520px; margin: 0 auto; }
       .stats-grid { grid-template-columns: 1fr; }
       .ach-grid { grid-template-columns: repeat(2, 1fr); }
       .action-bar { max-width: 520px; }
-      .bottom-spacer { height: 100px; }
+      .bottom-spacer { display: none; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -527,6 +543,11 @@
           <span class="slider"></span>
           <span>Animations</span>
         </label>
+        <label class="toggle">
+          <input type="checkbox" id="set-music">
+          <span class="slider"></span>
+          <span>Music</span>
+        </label>
         <button class="btn btn-ghost btn-sm" id="reset-stats">Reset Stats</button>
       </div>
     </section>
@@ -631,7 +652,11 @@
         high: 0, tile: 0, games: 0, wins: 0, moves: 0, fastestWinMs: 0,
       };
       let ach = {};
-      let settings = { sound: false, anim: true };
+      let settings = {
+        sound: false,
+        anim: true,
+        music: false
+      };
 
       // ----- DOM -----
       const $ = (id) => document.getElementById(id);
@@ -671,11 +696,7 @@
         renderStats();
         bindUI();
         bindControls();
-        if (!loadGame()) {
-          newGame(false);
-        } else {
-          render(true);
-        }
+        newGame(false);
         updateScores();
       }
 
@@ -733,8 +754,34 @@ return;
         });
         $('set-sound').checked = settings.sound;
         $('set-anim').checked = settings.anim;
-        $('set-sound').addEventListener('change', (e) => { settings.sound = e.target.checked; saveSettings(); });
+        $('set-music').checked = settings.music;
+        if (settings.music) {
+          const bgMusic = $('bgMusic');
+          bgMusic.volume = 0.15;
+        }
+        $('set-sound').addEventListener('change', (e) => {
+          settings.sound = e.target.checked;
+          saveSettings();
+
+          if (e.target.checked) {
+            navigator.vibrate?.(50);
+          }
+        });
         $('set-anim').addEventListener('change', (e) => { settings.anim = e.target.checked; saveSettings(); });
+
+        const bgMusic = $('bgMusic');
+
+        $('set-music').addEventListener('change', (e) => {
+          settings.music = e.target.checked;
+          saveSettings();
+
+          if (e.target.checked) {
+            bgMusic.volume = 0.3;
+            bgMusic.play().catch(() => {});
+          } else {
+            bgMusic.pause();
+          }
+        });
 
         // Mobile stats button & modal
         $('stats-btn').addEventListener('click', openMobileStats);
@@ -830,7 +877,6 @@ function closeMobileStats() {
         hideOverlay();
         render(true);
         updateScores();
-        saveGame();
       }
 
       function spawn() {
@@ -864,7 +910,9 @@ function closeMobileStats() {
 
         lastSnapshot = prev;
         score += gained;
+        if (gained > 0) vibrate(30);
         moves++;
+        vibrate(15);
         stats.moves++;
         if (gained > 0) checkAchAfterMerge();
         spawn();
@@ -887,6 +935,7 @@ if (!won && highest >= WIN) {
   renderStats();
 
   celebrate();
+  vibrate([100, 50, 100, 50, 200]);
   showOverlay('You Win!', `Reached 2048 in ${moves} moves`);
 
 } else if (!hasMoves()) {
@@ -898,6 +947,7 @@ if (!won && highest >= WIN) {
       `Your Final Score: ${score}`
     );
   } else {
+    vibrate([200, 100, 200]);
     showOverlay(
       'Game Over',
       `Your Final Score: ${score}`
@@ -906,7 +956,7 @@ if (!won && highest >= WIN) {
 
 }
         updateStatsLive();
-        saveStats(); saveGame();
+        saveStats();
       }
 
       function move(dir) {
@@ -981,7 +1031,6 @@ if (!won && highest >= WIN) {
         hideOverlay();
         render(true);
         updateScores();
-        saveGame();
       }
 
       // ----- Render -----
@@ -1158,23 +1207,6 @@ function showOverlay(title, sub, isWin = false) {
         $('ach-count').textContent = `${n}/${ACHIEVEMENTS.length}`;
       }
 
-      // ----- Persistence -----
-      function saveGame() {
-        try {
-          localStorage.setItem(LS_KEY, JSON.stringify({
-            grid: grid.map(row => row.map(c => c ? { id: c.id, value: c.value } : null)),
-            score, moves, won, continued, nextId, startedAt
-          }));
-        } catch {}
-      }
-      function loadGame() {
-        try {
-          const s = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
-          if (!s || !s.grid) return false;
-          restore(s);
-          return true;
-        } catch { return false; }
-      }
 
       // ----- Toast -----
       let toastEl = null;
@@ -1196,6 +1228,12 @@ function showOverlay(title, sub, isWin = false) {
         document.body.appendChild(toastEl);
         setTimeout(() => { if (toastEl) { toastEl.remove(); toastEl = null; } }, 1800);
       }
+
+      function vibrate(ms = 20) {
+  if (settings.sound && navigator.vibrate) {
+    navigator.vibrate(ms);
+  }
+}
 
       // ----- Confetti -----
       function celebrate() {
@@ -1241,6 +1279,16 @@ function showOverlay(title, sub, isWin = false) {
         requestAnimationFrame(step);
       }
 
+      document.addEventListener('click', () => {
+        const musicToggle = $('set-music');
+        const bgMusic = $('bgMusic');
+
+        if (musicToggle.checked && bgMusic.paused) {
+          bgMusic.volume = 0.3;
+          bgMusic.play().catch(() => {});
+        }
+      }, { once: true });
+
       // Prevent overscroll/zoom on iOS
       document.addEventListener('gesturestart', (e) => e.preventDefault());
       document.addEventListener('touchmove', (e) => {
@@ -1254,5 +1302,8 @@ function showOverlay(title, sub, isWin = false) {
       }
     })();
   </script>
+  <audio id="bgMusic" loop>
+  <source src="music.mp3" type="audio/mpeg">
+</audio>
 </body>
 </html>
